@@ -1,5 +1,7 @@
 package com.andy.tools.warcomparator;
 
+import com.google.common.collect.MapDifference;
+import com.google.common.collect.Maps;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.io.Files;
@@ -28,13 +30,17 @@ public class WarComparator {
       System.err.println("oldWarExtractFolder = Temporary folder where old war files can be extracted for comparison");
       System.exit(2);
     }
+
+    new File(args[1]).delete();
+    new File(args[3]).delete();
+
     Result result = isDifferent(args[0], args[1], args[2], args[3]);
     if (result.different) {
-      System.out.println("Wars are different");
+      System.out.println("Differences found");
       System.exit(1);
     }
     else {
-      System.out.println("Wars are similar");
+      System.out.println("No significant differences found");
       System.exit(0);
     }
   }
@@ -45,81 +51,41 @@ public class WarComparator {
     IgnoredJars ignoredJars = new IgnoredJars();
     FilenameOverride filenameOverride = new FilenameOverride();
 
+    System.out.println("Ignoring META-INF files for war and jar files");
+
     Map<String, String> nwifs = extractChecksums(newFile, newFileExtractionFolder);
     Map<String, String> owifs = extractChecksums(oldFile, oldFileExtractionFolder);
 
-    System.out.println("New: " + nwifs.size());
-    System.out.println("Old: " + owifs.size());
-
-    if (nwifs.size() != owifs.size()) {
+    MapDifference<String, String> difference = Maps.difference(nwifs, owifs);
+    if (!difference.areEqual()) {
+      System.out.println("diffs in .war: " + difference.entriesDiffering());
+      System.out.println("only in new war: " + difference.entriesOnlyOnLeft());
+      System.out.println("only in old war: " + difference.entriesOnlyOnRight());
       result.different = true;
-      result.reason.add("nwifs.size() != owifs.size()");
+      result.reason.add("!Maps.difference(nwifs, owifs).areEqual()");
     }
 
     for (String file : nwifs.keySet()) {
-      if (file.startsWith("META-INF")) {
-        System.out.println("Ignoring META-INF files for war: " + file);
-        continue;
-      }
-
-      if (!owifs.containsKey(file)) {
-        System.out.println("Old war does not contains new file " + file);
-        result.different = true;
-        result.reason.add("Old war does not contains new file " + file);
-      }
-
-      if (!file.endsWith(".jar") && !file.endsWith(".class") && !nwifs.get(file).equalsIgnoreCase(owifs.get(file))) {
-        System.out.println("Diff file found " + file);
-        result.different = true;
-        result.reason.add("Diff file found " + file);
-      }
-    }
-
-    System.out.println("WARS have same internals files, now comparing jars...");
-
-    for (String file : nwifs.keySet()) {
-
-      if (file.startsWith("META-INF")) {
-        System.out.println("Ignoring META-INF files");
-        continue;
-      }
-
       String oldFileOverride = filenameOverride.getOverride(file);
 
       // System.out.println(file+": "+ xx.get(file)+" - "+xx2.get(file));
-      if (file.endsWith(".jar") && !ignoredJars.isIgnored(file)) {
+      if (file.endsWith(".jar")
+          && !ignoredJars.isIgnored(file)
+          && !nwifs.get(file).equalsIgnoreCase(owifs.get(oldFileOverride))) {
+
         // 2 jars with different checksum
-        if (!nwifs.get(file).equals(owifs.get(oldFileOverride))) {
-          System.out.println("Comparing jar: " + file + ", New: " + nwifs.get(file) + ", old: " + owifs.get(oldFileOverride));
-        }
 
-        if (!nwifs.get(file).equalsIgnoreCase(owifs.get(oldFileOverride))) {
-          Map<String, String> njifs = extractChecksums(newFileExtractionFolder + File.separator + file, null);
-          Map<String, String> ojifs = extractChecksums(oldFileExtractionFolder + File.separator + oldFileOverride, null);
+        Map<String, String> njifs = extractChecksums(newFileExtractionFolder + File.separator + file, null);
+        Map<String, String> ojifs = extractChecksums(oldFileExtractionFolder + File.separator + oldFileOverride, null);
 
-          if (njifs.size() != ojifs.size()) {
-            result.different = true;
-            result.reason.add("njifs.size() != ojifs.size()");
-          }
-
-          for (String njif : njifs.keySet()) {
-            if (njif.startsWith("META-INF")) {
-              System.out.println("Ignoring META-INF files for jar: " + njif);
-              continue;
-            }
-
-            if (!ojifs.containsKey(njif)) {
-              System.out.println("File " + njif + " not found in old jar");
-              result.different = true;
-              result.reason.add("File " + njif + " not found in old jar");
-            }
-
-            if (!njif.endsWith(".class") && !njifs.get(njif).equalsIgnoreCase(ojifs.get(njif))) {
-              System.out.println("Diff file found " + njif + " in jar");
-              result.different = true;
-              result.reason.add("Diff file found " + njif + " in jar");
-            }
-          }
+        MapDifference<String, String> jarDiff = Maps.difference(njifs, ojifs);
+        if (!jarDiff.areEqual()) {
+          System.out.println("Comparing jar: " + file + ", new: " + nwifs.get(file) + ", old: " + owifs.get(oldFileOverride));
+          System.out.println("diffs in .jar: " + jarDiff.entriesDiffering());
+          System.out.println("only in new jar: " + jarDiff.entriesOnlyOnLeft());
+          System.out.println("only in old jar: " + jarDiff.entriesOnlyOnRight());
+          result.different = true;
+          result.reason.add("!Maps.difference(njifs, ojifs).areEqual()");
         }
       }
     }
@@ -134,13 +100,9 @@ public class WarComparator {
 
     try {
       ZipInputStream zis = new ZipInputStream(new FileInputStream(zipFile));
-
       ZipEntry ze = zis.getNextEntry();
-
       while (ze != null) {
-
         if (!ze.isDirectory()) {
-
           if (ze.getName().endsWith(".jar")) {
             File newFile = new File(extractLibsFolder + File.separator + ze.getName());
             new File(newFile.getParent()).mkdirs();
@@ -152,10 +114,14 @@ public class WarComparator {
             }
 
             fos.close();
-            files.put(ze.getName(), getMd5(newFile));
+            if (includeInDiff(ze)) {
+              files.put(ze.getName(), getMd5(newFile));
+            }
           }
           else {
-            files.put(ze.getName(), getMd5(zis));
+            if (includeInDiff(ze)) {
+              files.put(ze.getName(), getMd5(zis));
+            }
           }
         }
         ze = zis.getNextEntry();
@@ -167,13 +133,20 @@ public class WarComparator {
       return files;
     }
     catch (IOException ex) {
+      System.err.println("error: " + ex.getMessage());
       throw ex;
     }
   }
 
+  private static boolean includeInDiff(ZipEntry ze) {
+    return !ze.getName().endsWith(".class")
+           && !ze.getName().startsWith("META-INF/")
+           && !ze.getName().matches("dependency\\..+\\.list")
+           && !ze.getName().matches("properties\\..+\\.properties");
+  }
+
   private static String getMd5(InputStream iis) throws IOException {
-    String str = DigestUtils.md5Hex(iis);
-    return str;
+    return DigestUtils.md5Hex(iis);
   }
 
   private static String getMd5(File file) throws IOException {
@@ -192,6 +165,10 @@ public class WarComparator {
     String getOverride(String file) {
       if (overrides.containsKey(file)) {
         return overrides.get(file);
+      }
+
+      if (file.startsWith("classpath/")) {
+        return file.substring("classpath/".length());
       }
 
       return file;
