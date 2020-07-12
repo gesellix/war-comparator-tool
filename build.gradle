@@ -1,0 +1,32 @@
+plugins {
+  id 'java'
+  id 'maven-publish'
+  id 'application'
+}
+
+repositories {
+  mavenLocal()
+  mavenCentral()
+}
+
+dependencies {
+  implementation 'commons-codec:commons-codec:1.10'
+  implementation 'com.google.guava:guava:14.0-rc1'
+}
+
+group = 'com.andy.tools'
+version = '1.0.0-SNAPSHOT'
+description = 'War Comparator'
+sourceCompatibility = '1.8'
+
+application {
+  mainClass.set("com.andy.tools.warcomparator.WarComparator")
+}
+
+publishing {
+  publications {
+    maven(MavenPublication) {
+      from(components.java)
+    }
+  }
+}
