@@ -2,11 +2,11 @@ package com.andy.tools.warcomparator;
 
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.Maps;
-import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
+import com.google.common.io.ByteSource;
 import com.google.common.io.Files;
-import org.apache.commons.codec.digest.DigestUtils;
 
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -146,13 +146,25 @@ public class WarComparator {
   }
 
   private static String getMd5(InputStream iis) throws IOException {
-    return DigestUtils.md5Hex(iis);
+    return getMd5(new ByteSource() {
+      @Override
+      public InputStream openStream() {
+        return new BufferedInputStream(iis) {
+          @Override
+          public void close() {
+//            System.err.println("do not close");
+          }
+        };
+      }
+    });
   }
 
   private static String getMd5(File file) throws IOException {
-    HashCode md5 = Files.hash(file, Hashing.md5());
-    String md5Hex = md5.toString();
-    return md5Hex;
+    return getMd5(Files.asByteSource(file));
+  }
+
+  private static String getMd5(ByteSource byteSource) throws IOException {
+    return byteSource.hash(Hashing.goodFastHash(256)).toString();
   }
 
   static class FilenameOverride {
